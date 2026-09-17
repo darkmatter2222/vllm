@@ -156,6 +156,10 @@ if TYPE_CHECKING:
     VLLM_ENABLE_V1_MULTIPROCESSING: bool = True
     VLLM_LOG_BATCHSIZE_INTERVAL: float = -1
     VLLM_PLE_CPU_OFFLOAD: bool = True
+    VLLM_QWEN4_SPARK_GEMM_CONFIG: str = ""
+    VLLM_QWEN4_SPARK_PLE_LOOKUP: bool = False
+    VLLM_QWEN4_SPARK_HC_FUSION: bool = False
+    VLLM_QWEN4_SPARK_QSA_PREFIX: bool = False
     VLLM_DISABLE_COMPILE_CACHE: bool = False
     VLLM_REPLICATE_EMBED: bool = False
     VLLM_USE_LAYERNAME: bool = True
@@ -2053,6 +2057,19 @@ environment_variables: dict[str, Callable[[], Any]] = {
     ),
     # Store n-gram embedding tables in pinned CPU memory for UVA lookup.
     "VLLM_PLE_CPU_OFFLOAD": lambda: bool(int(os.getenv("VLLM_PLE_CPU_OFFLOAD", "1"))),
+    # Experimental GB10 paths; enable individually after Spark validation.
+    "VLLM_QWEN4_SPARK_GEMM_CONFIG": lambda: os.getenv(
+        "VLLM_QWEN4_SPARK_GEMM_CONFIG", ""
+    ),
+    "VLLM_QWEN4_SPARK_PLE_LOOKUP": lambda: bool(
+        int(os.getenv("VLLM_QWEN4_SPARK_PLE_LOOKUP", "0"))
+    ),
+    "VLLM_QWEN4_SPARK_HC_FUSION": lambda: bool(
+        int(os.getenv("VLLM_QWEN4_SPARK_HC_FUSION", "0"))
+    ),
+    "VLLM_QWEN4_SPARK_QSA_PREFIX": lambda: bool(
+        int(os.getenv("VLLM_QWEN4_SPARK_QSA_PREFIX", "0"))
+    ),
     # Debug logging for --enable-mfu-metrics
     "VLLM_DEBUG_MFU_METRICS": lambda: bool(
         int(os.getenv("VLLM_DEBUG_MFU_METRICS", "0"))

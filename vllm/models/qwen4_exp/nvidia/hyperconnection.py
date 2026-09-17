@@ -24,12 +24,15 @@ Typical usage inside a transformer decoder layer::
 
 import torch
 from torch import nn
-
 from vllm.model_executor.layers.linear import (
     MergedColumnParallelLinear,
     ReplicatedLinear,
+    UnquantizedLinearMethod,
 )
 from vllm.model_executor.models.utils import maybe_prefix
+from vllm.platforms import current_platform
+
+import vllm.envs as envs
 
 from ..common.hyperconnection import (
     GroupedGemmaRMSNorm,
@@ -145,8 +148,7 @@ class GatedResidual(nn.Module):
             injection = None
 
         lora = hc_silu(lora, self.hc_count)
-        gate = self.input_mix_weight_up(lora)  # [M, D]
-        block_input = hc_gate_mix(xn, gate, self.hc_count)
+        block_input = self._project_and_mix(xn, lora)
 
         return hidden_states, block_input, injection
 
@@ -182,10 +184,28 @@ class GatedResidual(nn.Module):
             injection = None
 
         lora = hc_silu(lora, self.hc_count)
-        gate = self.input_mix_weight_up(lora)  # [M, D]
-        block_input = hc_gate_mix(xn, gate, self.hc_count)
+        block_input = self._project_and_mix(xn, lora)
 
         return hidden_states, block_input, injection
+
+    def _project_and_mix(self, xn: torch.Tensor, lora: torch.Tensor) -> torch.Tensor:
+        projection = self.input_mix_weight_up
+        if (
+            envs.VLLM_QWEN4_SPARK_HC_FUSION
+            and not envs.VLLM_BATCH_INVARIANT
+            and current_platform.is_device_capability((12, 1))
+            and 0 < xn.shape[0] <= 8
+            and self.lora_rank <= 512
+            and xn.dtype == lora.dtype == torch.bfloat16
+            and type(projection) is ReplicatedLinear
+            and type(projection.quant_method) is UnquantizedLinearMethod
+            and projection.weight.dtype == torch.bfloat16
+        ):
+            from .ops.spark import hc_project_mix
+
+            return hc_project_mix(xn, lora, projection.weight, self.hc_count)
+        gate = projection(lora)
+        return hc_gate_mix(xn, gate, self.hc_count)
 
     def combine(
         self,

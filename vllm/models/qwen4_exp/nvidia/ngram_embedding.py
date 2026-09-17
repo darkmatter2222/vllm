@@ -9,9 +9,7 @@ from typing import ClassVar
 import torch
 import torch.nn.functional as F
 from torch import nn
-
 from vllm.compilation.breakable_cudagraph import eager_break_during_capture
-from vllm.config import get_current_vllm_config
 from vllm.distributed import get_dp_group, get_etp_group, get_tp_group
 from vllm.forward_context import DPMetadata, get_forward_context
 from vllm.logger import init_logger
@@ -36,12 +34,16 @@ from vllm.model_executor.parameter import (
     PerTensorScaleParameter,
 )
 from vllm.model_executor.utils import set_weight_attrs
+from vllm.platforms import current_platform
 from vllm.transformers_utils.configs.qwen4_exp import (
     Qwen4ExpTextConfig,
 )
 from vllm.triton_utils import tl, triton
 from vllm.utils.platform_utils import is_uva_available
 from vllm.utils.torch_utils import get_accelerator_view_from_cpu_tensor
+
+import vllm.envs as envs
+from vllm.config import get_current_vllm_config
 
 from ..common.ple import PLEVocabParallelEmbedding
 from .ops.ple import ple_ngram_ids
@@ -467,6 +469,23 @@ class Qwen4ExpPLEPinnedHostEmbedding(Qwen4ExpPLEEmbedding):
 
         flat_ids = input_ids.reshape(-1).long()
         if flat_ids.numel():
+            if (
+                envs.VLLM_QWEN4_SPARK_PLE_LOOKUP
+                and current_platform.is_device_capability((12, 1))
+                and input_ids.ndim == 2
+                and input_ids.is_contiguous()
+                and input_ids.shape[0] >= 8
+            ):
+                from .ops.spark import ple_lookup_tiled
+
+                ple_lookup_tiled(
+                    self._uva_weight,
+                    input_ids,
+                    output,
+                    self.shard_indices.org_vocab_start_index,
+                    self.shard_indices.org_vocab_end_index,
+                )
+                return output
             _lookup_ple_embedding_from_pinned_kernel[(flat_ids.numel(),)](
                 self._uva_weight,
                 flat_ids,

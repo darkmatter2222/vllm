@@ -3,13 +3,13 @@
 """Triton kernels for Qwen4Exp QSA index selection."""
 
 import torch
-
-import vllm.envs as envs
 from vllm.model_executor.warmup.jit_warmup_triton_helper import (
     TritonWarmupTensor,
 )
 from vllm.platforms import current_platform
 from vllm.triton_utils import tl, triton
+
+import vllm.envs as envs
 
 _TOPK_WORKSPACE_BYTES = 1024 * 1024
 _DECODE_BLOCK_N = 64
@@ -603,6 +603,19 @@ def qsa_select_paged_prefill(
     assert block_indices.shape == (q.shape[0], token_topk // compress_ratio)
     assert q.dtype == k_cache.dtype, "Q and the compressed K cache must match"
     rows = q.shape[0]
+    if (
+        envs.VLLM_QWEN4_SPARK_QSA_PREFIX
+        and not envs.VLLM_BATCH_INVARIANT
+        and current_platform.is_device_capability((12, 1))
+        and max_seq_len <= token_topk
+        and not torch.cuda.is_current_stream_capturing()
+    ):
+        # All visible blocks fit. Never specialize a captured graph on the
+        # current context length: replay may cross the selection threshold.
+        from .spark import qsa_all_blocks
+
+        qsa_all_blocks(visible_blocks, block_indices)
+        return
     # No row scores beyond cdiv(max_seq_len, compress_ratio) compressed
     # columns. Round up to 64 to keep the logits row stride
     # cooperative_topk-compatible.

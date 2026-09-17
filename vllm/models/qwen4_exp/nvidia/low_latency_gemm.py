@@ -7,14 +7,10 @@ Plans contain measured CUDA graph capture sizes; other token counts use the
 standard linear implementation.
 """
 
+from functools import lru_cache
+
 import torch
 from torch import nn
-
-import vllm.envs as envs
-from vllm.model_executor.kernels.linear.cute_dsl.skinny_gemm import (
-    SkinnyGemmConfig,
-    shape_dynamic_skinny_gemm,
-)
 from vllm.model_executor.layers.linear import LinearBase, UnquantizedLinearMethod
 from vllm.model_executor.layers.vocab_parallel_embedding import (
     ParallelLMHead,
@@ -22,6 +18,12 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
 )
 from vllm.platforms import current_platform
 from vllm.utils.torch_utils import direct_register_custom_op
+
+import vllm.envs as envs
+from vllm.model_executor.kernels.linear.cute_dsl.skinny_gemm import (
+    SkinnyGemmConfig,
+    shape_dynamic_skinny_gemm,
+)
 
 QWEN4_EXP_GEMM_PLANS: dict[tuple[int, int], dict[int, SkinnyGemmConfig]] = {
     # GDN fused QKVZ projection, TP=4.
@@ -152,11 +154,25 @@ def _is_sm90() -> bool:
     return current_platform.is_device_capability((9, 0))
 
 
+@lru_cache(maxsize=1)
+def _spark_gemm_plans(path: str) -> dict[tuple[int, int], dict[int, SkinnyGemmConfig]]:
+    from .spark_gemm_config import load_profile
+
+    return {
+        shape: {m: SkinnyGemmConfig(**config) for m, config in plans.items()}
+        for shape, plans in load_profile(path).items()
+    }
+
+
 def _gemm_plans() -> dict[tuple[int, int], dict[int, SkinnyGemmConfig]]:
     if _is_sm103():
         return QWEN4_EXP_GEMM_PLANS
     if _is_sm90():
         return QWEN4_EXP_SM90_GEMM_PLANS
+    if current_platform.is_device_capability((12, 1)):
+        path = envs.VLLM_QWEN4_SPARK_GEMM_CONFIG
+        if path:
+            return _spark_gemm_plans(path)
     return {}
 
 
