@@ -20,7 +20,7 @@ import pathlib, importlib.util, urllib.request, time
 root=pathlib.Path(importlib.util.find_spec('vllm').origin).parent
 base='https://raw.githubusercontent.com/darkmatter2222/vllm/9399e732d7c8831c81f35e690b988150eb4957e7/vllm/'
 staged=[]
-for name in ['platforms/interface.py', 'envs.py', 'models/qwen4_exp/nvidia/hyperconnection.py', 'models/qwen4_exp/nvidia/low_latency_gemm.py', 'models/qwen4_exp/nvidia/ngram_embedding.py', 'models/qwen4_exp/nvidia/ops/qsa_indexer.py', 'models/qwen4_exp/nvidia/ops/spark.py', 'models/qwen4_exp/nvidia/spark_gemm_config.py']:
+for name in ['models/qwen4_exp/nvidia/qsa.py', 'models/qwen4_exp/nvidia/ops/qsa.py', 'platforms/interface.py', 'envs.py', 'models/qwen4_exp/nvidia/hyperconnection.py', 'models/qwen4_exp/nvidia/low_latency_gemm.py', 'models/qwen4_exp/nvidia/ngram_embedding.py', 'models/qwen4_exp/nvidia/ops/qsa_indexer.py', 'models/qwen4_exp/nvidia/ops/spark.py', 'models/qwen4_exp/nvidia/spark_gemm_config.py']:
     for attempt in range(5):
         try:
             with urllib.request.urlopen(base+name, timeout=90) as response:
@@ -154,10 +154,6 @@ files = {
         "models/qwen4_exp/nvidia/mtp.py",
     "upstream-overlays/ops_ple.py":
         "models/qwen4_exp/nvidia/ops/ple.py",
-    "upstream-overlays/ops_qsa.py":
-        "models/qwen4_exp/nvidia/ops/qsa.py",
-    "upstream-overlays/qsa.py":
-        "models/qwen4_exp/nvidia/qsa.py",
     "upstream-overlays/modelopt.py":
         "model_executor/layers/quantization/modelopt.py",
 }
