@@ -11,6 +11,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --only-binary=:all: uv==0.12.15
 export UV_HTTP_TIMEOUT=300
+# Limit runtime CUDA compilation on shared-memory GB10.
+export MAX_JOBS=1
 WHEEL='https://wheels.vllm.ai/75c71390d5b399f5397a9166920fc45902f99f14/vllm-0.3.1.dev34%2Bg75c71390d-cp38-abi3-manylinux_2_28_aarch64.whl'
 uv pip install --python "$VIRTUAL_ENV/bin/python" --only-binary=:all: --index-strategy unsafe-best-match --extra-index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://flashinfer.ai/whl "$WHEEL" 'torch==2.13.0+cu130'
 python - <<'PYFORK'
@@ -516,6 +518,20 @@ echo "Vision: one image per request"
 echo "Thinking: OFF by default"
 echo "API: host port 8420"
 echo "Model loading and graph preparation can take 10+ minutes."
+
+# Build the same SM120-family module before weights occupy unified memory.
+# Preserve cached objects; do not change architecture or fast-build settings.
+python3 - <<'PYJIT'
+import time
+from flashinfer.fused_moe.core import gen_cutlass_fused_moe_sm120_module
+print("Preparing FlashInfer MoE kernels before loading weights (one compiler job).", flush=True)
+started = time.monotonic()
+spec = gen_cutlass_fused_moe_sm120_module(False)
+if spec.try_load() is None:
+    spec.build(verbose=True, need_lock=True)
+    spec.load()
+print(f"FlashInfer MoE kernels ready in {time.monotonic() - started:.1f}s.", flush=True)
+PYJIT
 
 exec vllm serve "${MODEL_DIR}" \
   --served-model-name "${SERVED_MODEL_NAME}" \
